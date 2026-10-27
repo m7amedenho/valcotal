@@ -1,0 +1,51 @@
+import {createRequire} from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
+const require=createRequire(import.meta.url);
+const {chromium}=require(path.join(os.tmpdir(),'valcotal-browser-tools/node_modules/playwright-core'));
+const browser=await chromium.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true});
+fs.mkdirSync('.qa',{recursive:true});
+const errors=[];
+const results=[];
+try {
+  const page=await browser.newPage({viewport:{width:1440,height:1000},deviceScaleFactor:1});
+  page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('http://localhost:3100',{waitUntil:'domcontentloaded'});
+  await page.evaluate(()=>document.fonts.ready);
+  await page.getByRole('button',{name:'إيقاف الشرائح مؤقتًا'}).click();
+  await page.screenshot({path:'.qa/desktop-hero.png'});
+  await page.locator('#about').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(800);
+  await page.screenshot({path:'.qa/desktop-about.png'});
+  await page.locator('#journey').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(800);
+  await page.screenshot({path:'.qa/desktop-timeline.png'});
+  await page.locator('.filter-bar button').nth(1).click();
+  results.push({desktopServices:await page.locator('.sector-card').count()});
+  await page.locator('.filter-bar button').first().click();
+  results.push({allServices:await page.locator('.sector-card').count()});
+  await page.locator('.faq-item button').nth(2).click();
+  results.push({faqOpen:await page.locator('#answer-2').isVisible()});
+  for(const width of [390,360]){
+    await page.setViewportSize({width,height:844});
+    await page.evaluate(()=>window.scrollTo({top:0,behavior:'instant'}));
+    await page.waitForTimeout(350);
+    const header=await page.locator('.site-header').evaluate(el=>({scrolled:el.classList.contains('is-scrolled'),background:getComputedStyle(el).backgroundColor}));
+    await page.screenshot({path:`.qa/mobile-${width}-hero.png`});
+    await page.getByRole('button',{name:'فتح القائمة'}).click();
+    const menuVisible=await page.locator('#main-nav').isVisible();
+    await page.locator('#main-nav').getByRole('link',{name:'حلولنا',exact:true}).click();
+    await page.waitForTimeout(700);
+    results.push({width,header,menuVisible,menuClosed:!await page.locator('#main-nav').isVisible(),scrolled:await page.locator('.site-header').evaluate(el=>el.classList.contains('is-scrolled'))});
+    await page.locator('#journey').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(800);
+    await page.screenshot({path:`.qa/mobile-${width}-timeline.png`});
+    const overflow=await page.evaluate(()=>({viewport:innerWidth,width:document.documentElement.scrollWidth,oversized:[...document.querySelectorAll('main *')].filter(el=>{const r=el.getBoundingClientRect();return r.width>0&&(r.right>innerWidth+2||r.left< -2)}).map(el=>el.className).slice(0,15)}));
+    results.push({width,overflow});
+    await page.locator('#contact').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(800);
+    await page.screenshot({path:`.qa/mobile-${width}-contact.png`});
+  }
+  console.log(JSON.stringify({results,errors},null,2));
+} finally {await browser.close();}
